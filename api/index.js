@@ -1,20 +1,10 @@
-const express = require('express');
 const https = require('https');
 const http = require('http');
-const app = express();
-
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.header('Access-Control-Allow-Headers', '*');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
-  next();
-});
 
 function fetchUrl(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
-    client.get(url, {
+    const req = client.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
         'Referer': 'https://music.migu.cn/'
@@ -24,14 +14,16 @@ function fetchUrl(url) {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => resolve(data));
-    }).on('error', reject).setTimeout(15000, function() { this.destroy(); reject(new Error('timeout')); });
+    });
+    req.on('error', reject);
+    req.setTimeout(15000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
 function getRedirectUrl(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
-    client.get(url, {
+    const req = client.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
         'Referer': 'https://music.migu.cn/'
@@ -39,55 +31,79 @@ function getRedirectUrl(url) {
       timeout: 10000
     }, (res) => {
       resolve(res.responseUrl || res.headers.location || url);
-    }).on('error', reject).setTimeout(10000, function() { this.destroy(); reject(new Error('timeout')); });
+    });
+    req.on('error', reject);
+    req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
   });
 }
 
-app.get('/api/search', async (req, res) => {
-  try {
-    const { keyword, limit = 30 } = req.query;
-    if (!keyword) return res.json({ code: 400, msg: 'keyword required' });
-    const enc = encodeURIComponent(keyword);
-    const raw = await fetchUrl(`https://c.musicapp.migu.cn/v1.0/content/search_all.do?text=${enc}&pageNo=1&pageSize=${limit}&isCopyright=1&searchSwitch=%7B%22song%22%3A1%7D`);
-    const data = JSON.parse(raw);
-    const results = data.songResultData?.result || [];
-    const songs = results.map(s => ({
-      id: s.id || '',
-      copyrightId: s.copyrightId || '',
-      contentId: s.contentId || '',
-      name: s.name || '',
-      singer: (s.singers && s.singers.length > 0) ? s.singers.map(x => x.name).join('/') : (s.singerName || ''),
-      album: (s.albums && s.albums.length > 0) ? s.albums[0].name : '',
-      duration: s.duration || 0,
-      lyricUrl: s.lyricUrl || '',
-      img: (s.imgItems && s.imgItems.length > 0) ? s.imgItems[0].img : (s.pic || '')
-    }));
-    res.json({ code: 200, data: { songs, total: String(data.songResultData?.total || results.length) } });
-  } catch(e) {
-    res.json({ code: 500, msg: e.message });
-  }
-});
+function sendJson(res, data, status = 200) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': '*',
+  });
+  res.end(JSON.stringify(data));
+}
 
-app.get('/api/url', async (req, res) => {
-  try {
-    const { copyrightId, contentId, resourceType = '2' } = req.query;
-    if (!copyrightId || !contentId) return res.json({ code: 400, msg: 'copyrightId and contentId required' });
-    const mp3Url = await getRedirectUrl(`https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/sub/listenSong.do?toneFlag=HQ&netType=01&copyrightId=${copyrightId}&contentId=${contentId}&resourceType=${resourceType}&channel=0`);
-    res.json({ code: 200, data: { url: mp3Url, br: 128 } });
-  } catch(e) {
-    res.json({ code: 500, msg: e.message });
+module.exports = async (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  const path = url.pathname.replace(/\/$/, '');
+  
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': '*',
+    });
+    return res.end();
   }
-});
-
-app.get('/api/lyric', async (req, res) => {
+  
   try {
-    const { url } = req.query;
-    if (!url) return res.json({ code: 400, msg: 'url required' });
-    const lyric = await fetchUrl(url);
-    res.json({ code: 200, data: { lyric } });
+    if (path === '/api/search' || path === '/search') {
+      const keyword = url.searchParams.get('keyword') || '';
+      const limit = url.searchParams.get('limit') || '30';
+      if (!keyword) return sendJson(res, { code: 400, msg: 'keyword required' });
+      
+      const enc = encodeURIComponent(keyword);
+      const raw = await fetchUrl(`https://c.musicapp.migu.cn/v1.0/content/search_all.do?text=${enc}&pageNo=1&pageSize=${limit}&isCopyright=1&searchSwitch=%7B%22song%22%3A1%7D`);
+      const data = JSON.parse(raw);
+      const results = data.songResultData?.result || [];
+      const songs = results.map(s => ({
+        id: s.id || '',
+        copyrightId: s.copyrightId || '',
+        contentId: s.contentId || '',
+        name: s.name || '',
+        singer: (s.singers && s.singers.length > 0) ? s.singers.map(x => x.name).join('/') : (s.singerName || ''),
+        album: (s.albums && s.albums.length > 0) ? s.albums[0].name : '',
+        duration: s.duration || 0,
+        lyricUrl: s.lyricUrl || '',
+        img: (s.imgItems && s.imgItems.length > 0) ? s.imgItems[0].img : (s.pic || '')
+      }));
+      return sendJson(res, { code: 200, data: { songs, total: String(data.songResultData?.total || results.length) } });
+    }
+    
+    if (path === '/api/url' || path === '/url') {
+      const copyrightId = url.searchParams.get('copyrightId') || '';
+      const contentId = url.searchParams.get('contentId') || '';
+      const resourceType = url.searchParams.get('resourceType') || '2';
+      if (!copyrightId || !contentId) return sendJson(res, { code: 400, msg: 'copyrightId and contentId required' });
+      
+      const mp3Url = await getRedirectUrl(`https://app.c.nf.migu.cn/MIGUM2.0/v1.0/content/sub/listenSong.do?toneFlag=HQ&netType=01&copyrightId=${copyrightId}&contentId=${contentId}&resourceType=${resourceType}&channel=0`);
+      return sendJson(res, { code: 200, data: { url: mp3Url, br: 128 } });
+    }
+    
+    if (path === '/api/lyric' || path === '/lyric') {
+      const lyricUrl = url.searchParams.get('url') || '';
+      if (!lyricUrl) return sendJson(res, { code: 400, msg: 'url required' });
+      const lyric = await fetchUrl(lyricUrl);
+      return sendJson(res, { code: 200, data: { lyric } });
+    }
+    
+    return sendJson(res, { code: 404, msg: 'Not found' });
+    
   } catch(e) {
-    res.json({ code: 500, msg: e.message });
+    return sendJson(res, { code: 500, msg: e.message });
   }
-});
-
-module.exports = app;
+};
