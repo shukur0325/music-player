@@ -2,7 +2,6 @@ const express = require('express');
 const https = require('https');
 const http = require('http');
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -32,7 +31,7 @@ function fetchUrl(url) {
 function getRedirectUrl(url) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
-    const req = client.get(url, {
+    client.get(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36',
         'Referer': 'https://music.migu.cn/'
@@ -40,9 +39,7 @@ function getRedirectUrl(url) {
       timeout: 10000
     }, (res) => {
       resolve(res.responseUrl || res.headers.location || url);
-    });
-    req.on('error', reject);
-    req.setTimeout(10000, function() { this.destroy(); reject(new Error('timeout')); });
+    }).on('error', reject).setTimeout(10000, function() { this.destroy(); reject(new Error('timeout')); });
   });
 }
 
@@ -93,13 +90,4 @@ app.get('/api/lyric', async (req, res) => {
   }
 });
 
-// Serve frontend static files from the repo
-app.use(express.static(__dirname));
-
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`API server running on port ${PORT}`);
-});
+module.exports = app;
