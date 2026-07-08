@@ -1,0 +1,15 @@
+{
+  "name": "music-player-api",
+  "version": "1.0.0",
+  "description": "Music Player API Proxy for Migu Music",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
