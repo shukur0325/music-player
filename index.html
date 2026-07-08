@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0a0a12">
+<title>音乐播放器</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a12;overflow:hidden;height:100dvh;width:100vw;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Helvetica Neue',sans-serif;color:#fff;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+canvas{position:fixed;top:0;left:0;width:100%;height:100%;display:block;z-index:1;pointer-events:none}
+
+/* ═══ Top Bar ═══ */
+.top{position:fixed;top:0;left:0;right:0;z-index:11;padding:max(env(safe-area-inset-top,12px),12px) 14px 6px;background:linear-gradient(180deg,rgba(10,10,18,.96) 0%,rgba(10,10,18,.7) 60%,transparent)}
+.sbar{display:flex;gap:6px;pointer-events:auto}
+.sbar input{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:7px 12px;color:#fff;font-size:13px;outline:none;min-width:0}
+.sbar input::placeholder{color:rgba(255,255,255,.2)}
+.sbar input:focus{border-color:rgba(255,255,255,.2)}
+.sbar button{background:rgba(255,255,255,.08);border:none;color:#fff;border-radius:18px;padding:7px 14px;font-size:12px;cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent;transition:.2s}
+.sbar button:active{transform:scale(.92);background:rgba(255,255,255,.14)}
+.tabs{display:flex;gap:5px;margin-top:6px;pointer-events:auto;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.tabs::-webkit-scrollbar{display:none}
+.tab{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:4px 10px;font-size:10px;color:rgba(255,255,255,.35);cursor:pointer;white-space:nowrap;transition:.25s;-webkit-tap-highlight-color:transparent;flex-shrink:0}
+.tab:active{transform:scale(.92)}
+.tab.on{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.15);color:#fff}
+
+/* ═══ Playlist Modal ═══ */
+.modal-overlay{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,0.5);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .4s ease}
+.modal-overlay.s{opacity:1;pointer-events:auto}
+.modal-box{width:88%;max-width:380px;max-height:68vh;background:rgba(18,18,28,0.96);border:1px solid rgba(255,255,255,0.06);border-radius:20px;overflow:hidden;display:flex;flex-direction:column;transform:translateY(24px) scale(0.94);transition:transform .4s cubic-bezier(.22,1,.36,1);opacity:0;box-shadow:0 24px 80px rgba(0,0,0,0.6)}
+.modal-overlay.s .modal-box{transform:translateY(0) scale(1);opacity:1}
+.modal-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px;flex-shrink:0}
+.modal-hd span{font-size:12px;font-weight:600;opacity:0.4;letter-spacing:2px}
+.modal-close{width:28px;height:28px;border-radius:50%;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.3);font-size:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent}
+.modal-close:active{transform:scale(.85)}
+.modal-body{overflow-y:auto;flex:1;padding:0 6px 6px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.06) transparent}
+.modal-body::-webkit-scrollbar{width:3px}
+.modal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,.06);border-radius:3px}
+.si{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;background:transparent;margin-bottom:2px;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent}
+.si:active{background:rgba(255,255,255,.06)}
+.si .idx{width:18px;font-size:10px;opacity:.15;text-align:center;flex-shrink:0}
+.si .info{flex:1;min-width:0}
+.si .nm{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.si .ar{font-size:10px;opacity:.3;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.si.play{background:rgba(255,255,255,.06)}
+.si.play .nm{color:#fff}
+.si.play .idx{color:#fff;opacity:.5}
+.empty-msg{text-align:center;padding:40px 0;font-size:12px;opacity:.2}
+
+/* ═══ Lyrics — 5 lines, centered, below top nav ═══ */
+.lyrics{position:fixed;left:16px;top:18%;right:16px;z-index:8;pointer-events:none;transition:opacity .8s ease;text-align:left}
+.lyrics.hide{opacity:0}
+.lyr-line{font-family:'Noto Serif CJK SC','Source Han Serif SC','STSong','SimSun',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:all .4s cubic-bezier(.22,1,.36,1);text-shadow:0 2px 16px rgba(0,0,0,0.5);letter-spacing:0.02em;line-height:1.6;padding:2px 0}
+.lyr-past{color:rgba(255,255,255,0.3);font-size:14px}
+.lyr-now{color:#fff;font-size:20px;font-weight:700;text-shadow:0 0 24px rgba(255,255,255,0.1),0 2px 16px rgba(0,0,0,0.5);letter-spacing:0.04em}
+.lyr-next{color:rgba(255,255,255,0.45);font-size:15px}
+.lyr-far{color:rgba(255,255,255,0.18);font-size:13px}
+.lyr-empty-line{opacity:0}
+
+/* ═══ Bottom Player — Clean White ═══ */
+.np{position:fixed;bottom:0;left:0;right:0;z-index:11;pointer-events:auto;padding:12px 20px max(20px,env(safe-area-inset-bottom,20px));background:linear-gradient(0deg,rgba(10,10,18,.96) 0%,rgba(10,10,18,.9) 50%,transparent 100%)}
+.np-row1{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.np-art{width:44px;height:44px;border-radius:6px;flex-shrink:0;background:rgba(255,255,255,0.06);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:14px;color:rgba(255,255,255,0.15);box-shadow:0 2px 8px rgba(0,0,0,0.3)}
+.np-info{flex:1;min-width:0}
+.np-nm{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:rgba(255,255,255,0.92)}
+.np-ar{font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-btn{background:none;border:none;color:rgba(255,255,255,0.6);width:36px;height:36px;border-radius:50%;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;-webkit-tap-highlight-color:transparent}
+.np-btn:active{color:#fff;transform:scale(0.88)}
+.np-btn.ply{color:#fff;width:44px;height:44px;font-size:20px;background:rgba(255,255,255,0.1)}
+.np-btn.ply:active{transform:scale(0.9);background:rgba(255,255,255,0.16)}
+.np-btn.plist{color:rgba(255,255,255,0.25);font-size:16px}
+.np-prog-row{display:flex;align-items:center;gap:10px;margin-bottom:2px}
+.np-time{font-size:10px;color:rgba(255,255,255,0.2);font-variant-numeric:tabular-nums;min-width:28px;font-family:monospace}
+.np-time.r{text-align:right}
+.prog-wrap{flex:1;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;cursor:pointer;position:relative}
+.prog-bar{height:100%;background:rgba(255,255,255,0.6);border-radius:2px;width:0%;transition:width .1s linear}
+
+/* ═══ Mode buttons ═══ */
+.modes{position:fixed;bottom:130px;left:50%;transform:translateX(-50%);z-index:10;display:flex;gap:6px;padding:0 14px;pointer-events:none}
+.modes .b{pointer-events:auto;width:30px;height:30px;border-radius:50%;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:rgba(255,255,255,.3);font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(8px)}
+.modes .b:active{transform:scale(.85)}
+.modes .b.on{border-color:rgba(255,255,255,.25);color:#fff;background:rgba(255,255,255,.12)}
+.lbl{position:fixed;bottom:163px;left:50%;transform:translateX(-50%) translateY(6px);font-size:9px;letter-spacing:3px;opacity:0;transition:.4s;z-index:10;pointer-events:none;text-shadow:0 2px 10px rgba(0,0,0,.8)}
+.lbl.s{opacity:.35;transform:translateX(-50%)}
+
+.loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:20;font-size:11px;color:rgba(255,255,255,.15);letter-spacing:2px;display:none}
+.loading.s{display:block}
+.toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:30;background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:14px 24px;font-size:12px;text-align:center;opacity:0;transition:opacity .4s;pointer-events:none;max-width:80%;backdrop-filter:blur(12px)}
+.toast.s{opacity:1}
+
+@media(max-width:420px){
+  .top{padding:8px 10px 4px}
+  .sbar input{font-size:11px;padding:6px 10px}.sbar button{padding:6px 10px;font-size:10px}
+  .tab{font-size:9px;padding:3px 8px}
+  .modal-box{width:92%;max-height:62vh}
+  .si{padding:6px 8px}.si .nm{font-size:12px}
+  .lyrics{left:12px;right:12px;top:16%}
+  .lyr-past{font-size:12px}.lyr-now{font-size:17px}.lyr-next{font-size:13px}.lyr-far{font-size:11px}
+  .np{padding:10px 14px 18px}
+  .np-art{width:40px;height:40px;border-radius:5px;font-size:12px}
+  .np-btn{width:32px;height:32px;font-size:12px}.np-btn.ply{width:40px;height:40px;font-size:18px}
+  .modes{bottom:120px;gap:4px}.modes .b{width:26px;height:26px;font-size:10px}
+  .lbl{bottom:150px}
+}
+</style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+<div class="loading" id="loading">加载中...</div>
+<div class="toast" id="toast"></div>
+
+<div class="top">
+  <div class="sbar">
+    <input id="q" type="text" placeholder="搜索歌手/歌曲..." autocomplete="off">
+    <button id="sbtn">搜索</button>
+  </div>
+  <div class="tabs" id="tabs">
+    <button class="tab on" data-q="颜人中">颜人中</button>
+    <button class="tab" data-q="华语热门歌曲">华语热门</button>
+    <button class="tab" data-q="世界杯主题曲">世界杯</button>
+    <button class="tab" data-q="周杰伦">周杰伦</button>
+    <button class="tab" data-q="陈奕迅">陈奕迅</button>
+    <button class="tab" data-q="林俊杰">林俊杰</button>
+    <button class="tab" data-q="邓紫棋">邓紫棋</button>
+    <button class="tab" data-q="Taylor Swift 热门">Taylor Swift</button>
+    <button class="tab" data-q="Ed Sheeran 热门">Ed Sheeran</button>
+  </div>
+</div>
+
+<div class="lbl" id="lbl">脉冲</div>
+
+<div class="lyrics" id="lyrics"></div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-hd">
+      <span>歌单</span>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body" id="slist"></div>
+  </div>
+</div>
+
+<div class="modes">
+  <button class="b on" data-m="0">▦</button>
+  <button class="b" data-m="1">✦</button>
+  <button class="b" data-m="2">∿</button>
+  <button class="b" data-m="3">◉</button>
+  <button class="b" data-m="4">✧</button>
+</div>
+
+<div class="np" id="np">
+  <div class="np-row1">
+    <div class="np-art" id="npCover"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/></svg></div>
+    <div class="np-info">
+      <div class="np-nm" id="npNm">选择歌曲开始</div>
+      <div class="np-ar" id="npAr">点搜索或歌单标签</div>
+    </div>
+    <div>
+      <button class="np-btn plist" id="plistBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="np-prog-row">
+    <span class="np-time" id="timeCur">0:00</span>
+    <div class="prog-wrap" id="progWrap">
+      <div class="prog-bar" id="progBar"></div>
+    </div>
+    <span class="np-time r" id="timeDur">0:00</span>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:20px;margin-top:4px">
+    <button class="np-btn" id="prevBtn" style="font-size:18px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+    </button>
+    <button class="np-btn ply" id="playBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
+    </button>
+    <button class="np-btn" id="nextBtn" style="font-size:18px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+// ═══ Audio ═══
+const API_BASE = '/api';
+
+const audio = new Audio();
+audio.crossOrigin = 'anonymous';
+let actx = null;
+let analyser = null;
+let source = null;
+let noiseNode = null;
+let noiseGain = null;
+let isPlaying = false;
+let audioReady = false;
+let audioSetupDone = false;
+let currentMode = 0;
+let currentSong = null;
+let playlist = [];
+let songIndex = -1;
+let lrcData = [];
+let currentLrcIdx = -1;
+let MODE_NAMES = ['脉冲','粒子','波形','光环','星爆'];
+
+// ═══ Canvas ═══
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W,H;
+function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+window.addEventListener('resize',resize); resize();
+
+// ═══ DOM refs ═══
+const $ = id => document.getElementById(id);
+const q = $('q'), sbtn = $('sbtn'), tabs = $('tabs');
+const modalOverlay = $('modalOverlay'), modalClose = $('modalClose'), slist = $('slist');
+const npCover = $('npCover'), npNm = $('npNm'), npAr = $('npAr');
+const playBtn = $('playBtn'), playIcon = $('playIcon'), prevBtn = $('prevBtn'), nextBtn = $('nextBtn'), plistBtn = $('plistBtn');
+const progBar = $('progBar'), timeCur = $('timeCur'), timeDur = $('timeDur');
+const lyrics = $('lyrics'), loading = $('loading'), toast = $('toast'), lbl = $('lbl');
+const modeBtns = document.querySelectorAll('.modes .b');
+
+// ═══ Toast ═══
+let toastTimer = null;
+function showToast(msg, dur = 2000){
+  toast.textContent = msg; toast.classList.add('s');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('s'), dur);
+}
+
+// ═══ API ═══
+async function searchSongs(keyword, limit = 30){
+  const r = await fetch(`${API_BASE}/search?keyword=${encodeURIComponent(keyword)}&limit=${limit}`);
+  const j = await r.json();
+  if(j.code !== 200) throw new Error(j.msg || '搜索失败');
+  return j.data.songs || [];
+}
+async function getSongUrl(song){
+  const r = await fetch(`${API_BASE}/url?copyrightId=${song.copyrightId}&contentId=${song.contentId}&resourceType=2`);
+  const j = await r.json();
+  if(j.code !== 200) throw new Error(j.msg || '获取链接失败');
+  return j.data.url;
+}
+async function getLyric(lyricUrl){
+  if(!lyricUrl) return '';
+  const r = await fetch(`${API_BASE}/lyric?url=${encodeURIComponent(lyricUrl)}`);
+  const j = await r.json();
+  if(j.code !== 200) return '';
+  return j.data.lyric || '';
+}
+
+// ═══ LRC Parser ═══
+function parseLRC(text){
+  const res = [];
+  const metaRe = /^\[(ti|ar|al|by|offset|length|ml):/i;
+  const timeRe = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+  for(let line of text.split('\n')){
+    if(metaRe.test(line)) continue;
+    const m = line.match(timeRe);
+    if(!m) continue;
+    const min = parseInt(m[1]), sec = parseInt(m[2]);
+    let ms = parseInt(m[3]); if(m[3].length === 2) ms *= 10;
+    const time = min*60 + sec + ms/1000;
+    const txt = line.replace(/\[.*?\]/g,'').trim();
+    if(txt) res.push({time, txt});
+  }
+  res.sort((a,b) => a.time - b.time);
+  return res;
+}
+
+// ═══ Audio Setup ═══
+function setupAudio(){
+  if(audioSetupDone) return;
+  audioSetupDone = true;
+  
+  actx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = actx.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = 0.7;
+  
+  try {
+    source = actx.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(actx.destination);
+    audioReady = true;
+  } catch(e) {
+    // Fallback: white noise for visual interest
+    audioReady = false;
+    const bufferSize = 2 * actx.sampleRate;
+    const noiseBuffer = actx.createBuffer(1, bufferSize, actx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+    
+    noiseNode = actx.createBufferSource();
+    noiseNode.buffer = noiseBuffer;
+    noiseNode.loop = true;
+    
+    noiseGain = actx.createGain();
+    noiseGain.gain.value = 0.25;
+    
+    noiseNode.connect(noiseGain);
+    noiseGain.connect(analyser);
+    analyser.connect(actx.destination);
+    noiseNode.start();
+  }
+}
+
+// ═══ Play Song ═══
+let coverImg = null;
+
+async function playSong(song, idx){
+  if(idx !== undefined) songIndex = idx;
+  currentSong = song;
+  
+  setupAudio();
+  
+  loading.classList.add('s');
+  npNm.textContent = song.name;
+  npAr.textContent = song.singer;
+  npCover.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="4"/></svg>';
+  coverImg = null;
+  
+  if(song.img){
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      npCover.style.backgroundImage = `url(${song.img})`;
+      npCover.style.backgroundSize = 'cover';
+      npCover.innerHTML = '';
+      if(img.width > 10) coverImg = img;
+    };
+    img.onerror = () => { npCover.style.backgroundImage = ''; };
+    img.src = song.img;
+  } else {
+    npCover.style.backgroundImage = '';
+  }
+  
+  document.querySelectorAll('.si').forEach((el,i) => el.classList.toggle('play', i === songIndex));
+  
+  try {
+    const url = await getSongUrl(song);
+    audio.src = url;
+    audio.load();
+    
+    if(actx && actx.state === 'suspended') await actx.resume();
+    
+    await audio.play();
+    isPlaying = true;
+    playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+    loading.classList.remove('s');
+    lyrics.classList.remove('hide');
+    
+    lrcData = []; currentLrcIdx = -1;
+    if(song.lyricUrl){
+      try { const lrcText = await getLyric(song.lyricUrl); lrcData = parseLRC(lrcText); } catch(e) {}
+    }
+    renderLyrics();
+  } catch(e) {
+    loading.classList.remove('s');
+    showToast('无法播放: ' + e.message, 3000);
+    isPlaying = false;
+    playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+  }
+}
+
+// ═══ Next/Prev ═══
+function playNext(){ if(playlist.length) playSong(playlist[(songIndex + 1) % playlist.length], (songIndex + 1) % playlist.length); }
+function playPrev(){ if(playlist.length) playSong(playlist[(songIndex - 1 + playlist.length) % playlist.length], (songIndex - 1 + playlist.length) % playlist.length); }
+
+// ═══ Playlist ═══
+function renderPlaylist(songs, append = false){
+  if(!append) slist.innerHTML = '';
+  if(!songs.length){ slist.innerHTML = '<div class="empty-msg">没有找到歌曲</div>'; return; }
+  songs.forEach((song, i) => {
+    const div = document.createElement('div');
+    div.className = 'si' + (i === songIndex && currentSong ? ' play' : '');
+    div.innerHTML = `<span class="idx">${i+1}</span><div class="info"><div class="nm">${song.name}</div><div class="ar">${song.singer || ''}</div></div>`;
+    div.addEventListener('click', () => { modalOverlay.classList.remove('s'); playSong(song, i); });
+    slist.appendChild(div);
+  });
+}
+
+// ═══ Search ═══
+async function doSearch(keyword){
+  if(!keyword.trim()) return;
+  loading.classList.add('s');
+  try {
+    const songs = await searchSongs(keyword, 50);
+    playlist = songs; songIndex = -1; currentSong = null;
+    renderPlaylist(songs);
+    modalOverlay.classList.add('s');
+    showToast(songs.length ? `找到 ${songs.length} 首歌曲` : '没有找到结果', 1500);
+  } catch(e) { showToast('搜索失败: ' + e.message, 3000); }
+  loading.classList.remove('s');
+}
+
+sbtn.addEventListener('click', () => doSearch(q.value));
+q.addEventListener('keydown', e => { if(e.key==='Enter') doSearch(q.value); });
+
+tabs.addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if(!tab) return;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+  tab.classList.add('on');
+  doSearch(tab.dataset.q);
+});
+
+// ═══ Modal ═══
+modalClose.addEventListener('click', () => modalOverlay.classList.remove('s'));
+modalOverlay.addEventListener('click', e => { if(e.target === modalOverlay) modalOverlay.classList.remove('s'); });
+
+// ═══ Play controls ═══
+playBtn.addEventListener('click', () => {
+  setupAudio();
+  if(!audio.src) { showToast('请先搜索歌曲', 1500); return; }
+  if(isPlaying){
+    audio.pause(); isPlaying = false;
+    playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+  } else {
+    audio.play().then(() => {
+      isPlaying = true;
+      playIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+    }).catch(e => showToast('播放失败', 1500));
+  }
+});
+prevBtn.addEventListener('click', playPrev);
+nextBtn.addEventListener('click', playNext);
+
+plistBtn.addEventListener('click', () => {
+  if(playlist.length) { renderPlaylist(playlist, true); modalOverlay.classList.add('s'); }
+  else showToast('歌单为空，请先搜索', 1500);
+});
+
+// ═══ Progress ═══
+audio.addEventListener('timeupdate', () => {
+  if(audio.duration){
+    progBar.style.width = (audio.currentTime / audio.duration * 100) + '%';
+    timeCur.textContent = fmtTime(audio.currentTime);
+    updateLyrics(audio.currentTime);
+  }
+});
+audio.addEventListener('durationchange', () => { timeDur.textContent = fmtTime(audio.duration || 0); });
+audio.addEventListener('loadedmetadata', () => { timeDur.textContent = fmtTime(audio.duration || 0); });
+audio.addEventListener('ended', playNext);
+
+$('progWrap').addEventListener('click', e => {
+  if(!audio.duration) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  audio.currentTime = ((e.clientX - rect.left) / rect.width) * audio.duration;
+});
+
+function fmtTime(t){
+  if(!t || isNaN(t)) return '0:00';
+  const m = Math.floor(t/60), s = Math.floor(t%60);
+  return m + ':' + (s<10?'0':'') + s;
+}
+
+// ═══ Lyrics — 5 lines ═══
+function renderLyrics(){
+  const lines = lrcData;
+  let html = '';
+  for(let i = 0; i < 5; i++){
+    const idx = currentLrcIdx + i - 2;
+    let cls = 'lyr-line', txt = '';
+    if(idx < 0 || idx >= lines.length){ cls += ' lyr-empty-line'; txt = '&nbsp;'; }
+    else if(idx === currentLrcIdx){ cls += ' lyr-now'; txt = lines[idx].txt; }
+    else if(idx === currentLrcIdx + 1){ cls += ' lyr-next'; txt = lines[idx].txt; }
+    else if(idx < currentLrcIdx){ cls += ' lyr-past'; txt = lines[idx].txt; }
+    else { cls += ' lyr-far'; txt = lines[idx].txt; }
+    html += `<div class="${cls}">${txt}</div>`;
+  }
+  lyrics.innerHTML = html;
+}
+
+function updateLyrics(time){
+  if(!lrcData.length) return;
+  let idx = -1;
+  for(let i = lrcData.length - 1; i >= 0; i--){ if(time >= lrcData[i].time){ idx = i; break; } }
+  if(idx !== currentLrcIdx){ currentLrcIdx = idx; renderLyrics(); }
+}
+
+// ═══ Mode switching ═══
+modeBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    modeBtns.forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    currentMode = parseInt(btn.dataset.m);
+    lbl.textContent = MODE_NAMES[currentMode];
+    lbl.classList.add('s');
+    clearTimeout(lbl._t);
+    lbl._t = setTimeout(() => lbl.classList.remove('s'), 1200);
+  });
+});
+
+// ═══ Canvas Visualizer ═══
+function draw(){
+  if(!analyser) { requestAnimationFrame(draw); return; }
+  
+  const bufLen = analyser.frequencyBinCount;
+  const freqData = new Uint8Array(bufLen);
+  const timeData = new Uint8Array(bufLen);
+  
+  analyser.getByteFrequencyData(freqData);
+  analyser.getByteTimeDomainData(timeData);
+  
+  ctx.clearRect(0, 0, W, H);
+  
+  // Background ambient glow
+  const avg = getAvg(freqData) / 255;
+  if(avg > 0.05){
+    const grd = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.min(W,H)*0.5);
+    grd.addColorStop(0, `rgba(255,255,255,${avg * 0.03})`);
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+  }
+  
+  const cx = W/2, cy = H/2;
+  const maxW = Math.min(W, H) * 0.35;
+  
+  switch(currentMode){
+    case 0: drawBars(ctx, freqData, cx, cy, maxW, W, H); break;
+    case 1: drawParticles(ctx, freqData, cx, cy, maxW, W, H); break;
+    case 2: drawWaveform(ctx, timeData, cx, cy, W, H); break;
+    case 3: drawHalo(ctx, freqData, cx, cy, maxW, W, H); break;
+    case 4: drawStarburst(ctx, freqData, cx, cy, maxW, W, H); break;
+  }
+  
+  requestAnimationFrame(draw);
+}
+
+// ═══ Mode 0: Bars ═══
+function drawBars(ctx, freq, cx, cy, maxW, W, H){
+  const bars = 64;
+  const step = Math.floor(freq.length / bars);
+  const w = (W * 0.7) / bars;
+  const baseH = 4, maxH = H * 0.35;
+  for(let i = 0; i < bars; i++){
+    let val = 0;
+    for(let j = 0; j < step; j++) val += freq[i*step + j];
+    val /= step;
+    const pct = val / 255;
+    const h = baseH + pct * maxH;
+    const x = (W * 0.15) + i * w;
+    const y = H - h - H * 0.32;
+    const alpha = 0.4 + pct * 0.5;
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(x, y, Math.max(w - 1, 1), h);
+  }
+}
+
+// ═══ Mode 1: Particles ═══
+let particles = [];
+const MAX_PARTICLES = 80;
+function drawParticles(ctx, freq, cx, cy, maxW, W, H){
+  const avg = getAvg(freq) / 255;
+  const count = Math.floor(8 + avg * 50);
+  while(particles.length < count && particles.length < MAX_PARTICLES){
+    const angle = Math.random() * Math.PI * 2;
+    particles.push({
+      x: cx + Math.cos(angle) * maxW * 0.5,
+      y: cy + Math.sin(angle) * maxW * 0.3,
+      vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2 - 1,
+      size: 1 + Math.random() * 3, life: 0.5 + Math.random() * 0.5
+    });
+  }
+  while(particles.length > Math.max(count, 8)) particles.shift();
+  for(let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy; p.vy += 0.02; p.life -= 0.005;
+    if(p.life <= 0 || p.x < -50 || p.x > W + 50 || p.y > H + 50){ particles.splice(i, 1); continue; }
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${p.life * 0.5})`;
+    ctx.fill();
+  }
+}
+
+// ═══ Mode 2: Waveform ═══
+function drawWaveform(ctx, time, cx, cy, W, H){
+  const step = 2, len = time.length, mid = H * 0.5, amp = H * 0.22;
+  ctx.beginPath(); ctx.moveTo(0, mid);
+  for(let i = 0; i < len; i += step) ctx.lineTo((i/len)*W, mid + ((time[i]-128)/128)*amp);
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, mid);
+  for(let i = 0; i < len; i += step){
+    const idx = (i + 20) % len;
+    ctx.lineTo((i/len)*W, mid + ((time[idx]-128)/128)*amp*0.6);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+// ═══ Mode 3: Halo ═══
+function drawHalo(ctx, freq, cx, cy, maxW, W, H){
+  const avg = getAvg(freq) / 255;
+  const r = maxW * (0.2 + avg * 0.5);
+  const bars = 48, step = Math.floor(freq.length / bars);
+  for(let i = 0; i < bars; i++){
+    let val = 0;
+    for(let j = 0; j < step; j++) val += freq[i*step + j];
+    val /= step;
+    const pct2 = val / 255;
+    const r2 = r * (0.5 + pct2 * 0.6);
+    const angle = (i / bars) * Math.PI * 2 - Math.PI/2;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(angle)*r2, cy + Math.sin(angle)*r2, 1.5 + pct2*5, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,255,${0.2 + pct2*0.5})`;
+    ctx.fill();
+  }
+  const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, r*0.4);
+  grd.addColorStop(0, `rgba(255,255,255,${0.03 + avg*0.06})`);
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(cx, cy, r*0.4, 0, Math.PI*2); ctx.fill();
+}
+
+// ═══ Mode 4: Starburst ═══
+function drawStarburst(ctx, freq, cx, cy, maxW, W, H){
+  const avg = getAvg(freq) / 255;
+  const rays = 24, step = Math.floor(freq.length / rays);
+  const maxR = Math.min(W, H) * 0.45, baseR = maxR * 0.12;
+  ctx.beginPath();
+  for(let i = 0; i < rays; i++){
+    let val = 0;
+    for(let j = 0; j < step; j++) val += freq[i*step + j];
+    val /= step;
+    const angle = (i/rays)*Math.PI*2 - Math.PI/2;
+    const r = baseR + (val/255)*maxR*0.8;
+    const x = cx + Math.cos(angle)*r, y = cy + Math.sin(angle)*r;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  }
+  ctx.closePath();
+  ctx.fillStyle = `rgba(255,255,255,${0.04 + avg*0.1})`; ctx.fill();
+  ctx.strokeStyle = `rgba(255,255,255,${0.15 + avg*0.3})`; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, maxR*0.12*(0.5 + avg*0.5), 0, Math.PI*2);
+  ctx.strokeStyle = `rgba(255,255,255,${0.1 + avg*0.25})`; ctx.lineWidth = 1 + avg*2; ctx.stroke();
+}
+
+function getAvg(data){ let sum = 0; for(let i = 0; i < data.length; i++) sum += data[i]; return sum / data.length; }
+
+// ═══ Init ═══
+document.addEventListener('click', () => { setupAudio(); }, { once: true });
+setTimeout(() => doSearch('颜人中'), 300);
+draw();
+</script>
+</body>
+</html>
