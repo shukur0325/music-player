@@ -1,5 +1,14 @@
 {
   "name": "music-player",
   "version": "1.0.0",
-  "private": true
+  "private": true,
+  "description": "Migu Music Player with audio visualizer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  }
 }
